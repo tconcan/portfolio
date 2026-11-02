@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+@theme {
+  /* Old site palette */
+  --color-ink: #030712; /* gray-950 page base */
+  --color-plum: #6a0dad; /* gradient start */
+  --color-aqua: #00ffff; /* gradient end */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Only <html> gets the base colour (it also tints overscroll and Safari's
+   toolbar). A body background would paint over the z-index:-1 canvas. */
+html {
+  background-color: var(--color-ink);
+}
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth; /* in-page links like #about */
+  }
+}
+body {
+  color: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* ---- Background ---------------------------------------------------------- */
+
+/* Overshoots the screen top and bottom: iOS Safari treats fixed elements that
+   end exactly at the screen edge specially under its floating toolbar. */
+.bg-canvas,
+.bg-fallback {
+  position: fixed;
+  left: 0;
+  width: 100%;
+  top: calc(-80px - env(safe-area-inset-top, 0px));
+  height: calc(100vh + 160px);
+  height: calc(100lvh + 160px + env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px));
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Static stand-in when WebGL is unavailable. */
+.bg-fallback {
+  background:
+    radial-gradient(40% 35% at 35% 25%, rgb(106 13 173 / 0.55), transparent 70%),
+    radial-gradient(45% 40% at 70% 60%, rgb(30 130 215 / 0.55), transparent 70%),
+    radial-gradient(35% 30% at 90% 95%, rgb(0 255 255 / 0.5), transparent 70%),
+    var(--color-ink);
+}
+
+/* ---- Header -------------------------------------------------------------- */
+
+.nav-glow {
+  transition:
+    text-shadow 0.4s ease,
+    filter 0.4s ease,
+    opacity 0.4s ease;
+}
+.nav-glow:hover,
+.nav-glow:focus-visible {
+  text-shadow: 0 0 8px rgb(255 255 255 / 0.75);
+  filter: drop-shadow(0 0 6px rgb(255 255 255 / 0.7));
+}
+
+:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ---- Logo marquee ---------------------------------------------------------- */
+
+/* Slides by exactly one logo set (--marquee-shift, measured in JS); the
+   duration is set inline so the speed is constant. */
+@keyframes marquee {
+  to {
+    transform: translate3d(calc(-1 * var(--marquee-shift)), 0, 0);
+  }
+}
+.marquee-track {
+  animation: marquee 30s linear infinite;
+}
+.marquee:hover .marquee-track,
+.marquee:focus-within .marquee-track {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+}

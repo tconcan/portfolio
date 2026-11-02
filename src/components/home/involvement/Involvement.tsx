@@ -43,7 +43,7 @@ export default function Involvement() {
       variants={section}
     >
       <motion.header variants={rise} className="mb-8 px-4 text-center sm:mb-10">
-        <p className={`mb-3 text-sm font-semibold tracking-[0.2em] uppercase ${GRADIENT_TEXT}`}>Where I've been</p>
+        <p className={`mb-3 text-sm font-semibold tracking-[0.2em] uppercase ${GRADIENT_TEXT}`}>What I've done</p>
         <h2 id="involvement-title" className="text-4xl font-bold tracking-tight sm:text-5xl md:text-6xl">
           Involvement
         </h2>

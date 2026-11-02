@@ -117,9 +117,6 @@ interface Props {
   anchorRef: RefObject<HTMLElement | null>;
   /** Trip shown in the "trips" view (its tag). */
   tripId: string | null;
-  /** The trip card's slot. When it sits beside the globe (desktop), the
-      trips view centres the globe in the space to its right. */
-  focusRef: RefObject<HTMLElement | null>;
   onHover: (name: string | null) => void;
 }
 
@@ -129,12 +126,15 @@ interface Props {
  * to the whole globe and spins slowly. Drag to turn it either way. Canvas
  * (not SVG) because every frame re-projects.
  */
-export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover }: Props) {
+export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const goTo = useRef<(v: GlobeView) => void>(() => {});
   const viewRef = useRef(view);
   const tripIdRef = useRef(tripId);
+  // Label that follows the hovered place marker on the globe.
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tip, setTip] = useState<{ title: string; detail: string } | null>(null);
   const hoverRef = useRef(onHover);
   hoverRef.current = onHover;
   const reduceMotion = useReducedMotion() ?? false;
@@ -238,9 +238,9 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
     let dpr = 1;
     const base = () => Math.min(aw, ah);
     // Radius at which the lower 48 fill the frame (about 0.82r wide and
-    // 0.48r tall when centred, in orthographic). Width may use the whole
-    // canvas; the rest of the globe simply runs off the page.
-    const usRadius = () => Math.min((0.9 * Math.min(w, aw * 1.25)) / 0.82, (0.95 * ah) / 0.48) / base();
+    // 0.48r tall when centred, in orthographic), within the stage box; the
+    // rest of the globe simply runs off the page.
+    const usRadius = () => Math.min((0.92 * aw) / 0.82, (0.95 * ah) / 0.48) / base();
     const target = (v: GlobeView, from: Camera): Camera =>
       v === "trips"
         ? frameTrip()
@@ -253,22 +253,8 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
       const trip = routes.find((rt) => rt.id === tripIdRef.current) ?? routes[0];
       if (!trip) return { ...US_CENTER, r: usRadius(), ox: 0 };
 
-      // Free space: right of the card on desktop, else the normal frame.
-      let fx = ax;
-      let availW = Math.min(w, aw * 1.25);
-      const slot = focusRef.current;
-      if (slot) {
-        const c = wrap.getBoundingClientRect();
-        const sr = slot.getBoundingClientRect();
-        const right = sr.right - c.left;
-        const beside = sr.width > 0 && right < ax && sr.top - c.top < ay + ah / 2 && sr.bottom - c.top > ay - ah / 2;
-        if (beside) {
-          const left = right + 24;
-          const edge = w - 24;
-          fx = (left + edge) / 2;
-          availW = edge - left;
-        }
-      }
+      // Fit inside the stage box (the right-hand column on desktop).
+      const availW = aw;
 
       // Centre on the trip's bounding box, then size it with the unit
       // orthographic extents of its stops.
@@ -288,7 +274,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
         my = Math.max(my, Math.abs(Math.cos(p0) * Math.sin(p) - Math.sin(p0) * Math.cos(p) * Math.cos(l)));
       }
       const px = Math.min((availW * 0.88) / (2 * mx), (ah * 0.86) / (2 * my));
-      return { lon: lon0, lat: lat0, r: Math.max(WORLD_RADIUS, Math.min(40, px / base())), ox: fx - ax };
+      return { lon: lon0, lat: lat0, r: Math.max(WORLD_RADIUS, Math.min(40, px / base())), ox: 0 };
     };
 
     // Starts at world distance, turned well away from the US.
@@ -473,7 +459,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
     const drawStar = (x: number, y: number, outer: number) => {
       ctx.beginPath();
       for (let k = 0; k < 10; k++) {
-        const rr = k % 2 ? outer * 0.45 : outer;
+        const rr = k % 2 ? outer * 0.52 : outer; // plump points
         const a = -Math.PI / 2 + (k * Math.PI) / 5;
         ctx.lineTo(x + Math.cos(a) * rr, y + Math.sin(a) * rr);
       }
@@ -681,25 +667,70 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
      * Place markers; starred places are stars. In the trips view (`target`
      * set) they appear as the line reaches them.
      */
-    const drawMarkers = (markers: Marker[], k: number, target = Infinity, popIn = 1) => {
-      const inTrip = Number.isFinite(target);
-      for (const m of markers) {
-        if (m.firstT > target || !onFront(m.coord)) continue;
+    // Markers animate in and out: each place's presence eases 0 → 1 when it
+    // should show (view switch, or the line reaching it) and back to 0 when
+    // it shouldn't, with a little overshoot on the way in.
+    const MARKER_MS = 320;
+    const presence = new Map<string, { m: Marker; a: number; want: boolean }>();
+    const markerKey = (m: Marker) => `${m.coord[0].toFixed(3)},${m.coord[1].toFixed(3)}${m.star ? "*" : ""}`;
+    /** Markers that should be showing right now. */
+    const wantedMarkers = (): Marker[] => {
+      const sel = selectedRoute();
+      if (!sel) return allMarkers;
+      const target = routeProgress * sel.T;
+      return sel.markers.filter((m) => m.firstT <= target);
+    };
+    /** Step every marker's presence; true while any is still animating. */
+    const stepMarkers = (dt: number): boolean => {
+      const wanted = wantedMarkers();
+      const keys = new Set<string>();
+      for (const m of wanted) {
+        const key = markerKey(m);
+        keys.add(key);
+        const e = presence.get(key);
+        if (e) {
+          e.m = m;
+          e.want = true;
+        } else presence.set(key, { m, a: reduceMotion ? 1 : 0, want: true });
+      }
+      let moving = false;
+      for (const [key, e] of presence) {
+        if (!keys.has(key)) e.want = false;
+        const goal = e.want ? 1 : 0;
+        if (e.a !== goal) {
+          e.a = reduceMotion ? goal : Math.min(1, Math.max(0, e.a + (e.want ? 1 : -1) * ((dt * 1000) / MARKER_MS)));
+          moving = true;
+        }
+        if (!e.want && e.a === 0) presence.delete(key);
+      }
+      return moving;
+    };
+    const easeOutBack = (x: number) => 1 + 2.2 * (x - 1) ** 3 + 1.2 * (x - 1) ** 2;
+
+    const drawMarkers = (k: number) => {
+      for (const { m, a, want } of presence.values()) {
+        if (a <= 0 || !onFront(m.coord)) continue;
         const p = projection(m.coord);
         if (!p) continue;
-        const grow = !inTrip ? 1 : Math.min(1, (target - m.firstT) / popIn + 0.15);
+        // Pop in with a slight overshoot; shrink away when leaving.
+        const grow = want ? easeOutBack(a) : a;
+        ctx.globalAlpha = Math.min(1, a * 1.5);
         const lit = m === hoveredMarker;
         if (m.star) {
-          const size = (lit ? 9 : 7) * k * grow;
-          ctx.shadowColor = routeColor(m.tone, 0.9);
-          ctx.shadowBlur = 10;
+          // Soft star: rounded tips (a thick round-joined stroke in the fill
+          // colour) and a gentle glow.
+          const size = (lit ? 8 : 6.2) * k * grow;
+          const fill = "#fef9c3"; // same pale yellow as before
           drawStar(p[0], p[1], size);
-          ctx.fillStyle = "#fef9c3";
+          ctx.shadowColor = routeColor(m.tone, lit ? 0.75 : 0.5);
+          ctx.shadowBlur = lit ? 14 : 9;
+          ctx.lineJoin = "round";
+          ctx.lineWidth = size * 0.45;
+          ctx.strokeStyle = fill;
+          ctx.stroke();
+          ctx.fillStyle = fill;
           ctx.fill();
           ctx.shadowBlur = 0;
-          ctx.lineWidth = 1;
-          ctx.strokeStyle = routeColor(m.tone, 1);
-          ctx.stroke();
         } else {
           const rad = (lit ? 4.2 : 2.6) * k * grow;
           if (lit) {
@@ -717,6 +748,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
           ctx.stroke();
         }
       }
+      ctx.globalAlpha = 1;
     };
 
     const drawRoute = (route: Route, zoomed: number, progress: number, lines: boolean, cx: number, cy: number, R: number) => {
@@ -745,9 +777,29 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
         }
       }
 
-      // Places pop in as the line first reaches them.
-      if (lines) drawMarkers(route.markers, k, target, T * 0.015);
+      // Places pop in as the line first reaches them (see stepMarkers).
+      if (lines) drawMarkers(k);
       if (head && progress < 1) drawHead(head.at[0], head.at[1], k, progress, head.alpha);
+    };
+
+    /** Keep the place label beside its marker as the globe moves. */
+    const placeTip = () => {
+      const el = tipRef.current;
+      if (!el) return;
+      const m = hoveredMarker;
+      const p = m && onFront(m.coord) ? projection(m.coord) : null;
+      if (!m || !p) {
+        el.style.opacity = "0";
+        return;
+      }
+      // Above the marker, kept inside the canvas; below it near the top edge.
+      const tw = el.offsetWidth;
+      const th = el.offsetHeight;
+      const x = Math.min(w - tw - 8, Math.max(8, p[0] - tw / 2));
+      const above = p[1] - th - 14;
+      const y = above < 8 ? p[1] + 14 : above;
+      el.style.transform = `translate(${x}px, ${y}px)`;
+      el.style.opacity = "1";
     };
 
     // ---- Drawing -----------------------------------------------------------
@@ -853,7 +905,8 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
       // every trip's stops, without the lines.
       const shown = selectedRoute();
       if (shown) drawRoute(shown, zoomed, routeProgress, true, cx, cy, R);
-      else drawMarkers(allMarkers, 0.55 + 0.45 * zoomed);
+      else drawMarkers(0.55 + 0.45 * zoomed);
+      placeTip();
 
       // Rim light.
       ctx.beginPath();
@@ -963,7 +1016,17 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
       hoveredMarker = marker;
       dirty = true;
       if (!drag) canvas.style.cursor = marker ? "pointer" : "";
-      hoverRef.current(marker ? placeLabel(marker.visits) : (place?.properties.name ?? null));
+      // Places get a label beside the marker; countries / states still use
+      // the caption under the globe.
+      if (marker) {
+        // Dates only in the trips view; elsewhere just the place (and any note).
+        const [title, ...rest] = placeLabel(marker.visits).split(" · ");
+        const notes = [...new Set(marker.visits.map((v) => v.comment).filter(Boolean))].join(" · ");
+        setTip({ title, detail: viewRef.current === "trips" ? rest.join(" · ") : notes });
+        // Re-place once React has rendered the new text (its size changes).
+        requestAnimationFrame(() => requestAnimationFrame(() => (dirty = true)));
+      } else setTip(null);
+      hoverRef.current(marker ? null : (place?.properties.name ?? null));
     };
     const setHovered = (place: Place | null) => setHover(place, null);
     /** Places win over the land under them. */
@@ -1063,6 +1126,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
         }
         dirty = true;
       }
+      if (stepMarkers(dt)) dirty = true;
       if (dirty) {
         draw();
         dirty = false;
@@ -1084,7 +1148,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
       goTo.current = () => {};
       tripReady.current = () => {};
     };
-  }, [data, reduceMotion, anchorRef, focusRef]);
+  }, [data, reduceMotion, anchorRef]);
 
   if (failed) {
     return <div className="grid h-full place-items-center text-sm text-gray-400">Couldn't load the globe. Try refreshing.</div>;
@@ -1112,6 +1176,20 @@ export default function TravelGlobe({ view, anchorRef, tripId, focusRef, onHover
         // Vertical swipes still scroll the page on touch screens.
         className="block h-full w-full cursor-grab touch-pan-y select-none"
       />
+      {/* Hovered / tapped place, positioned beside its marker each frame. Plain
+          text with a dark halo so it reads over the globe and the stars. */}
+      <div
+        ref={tipRef}
+        aria-live="polite"
+        className="pointer-events-none absolute top-0 left-0 w-max max-w-[16rem] text-left opacity-0 transition-opacity duration-150 [text-shadow:0_1px_2px_rgb(0_0_0/0.95),0_0_10px_rgb(3_7_18/0.95),0_0_20px_rgb(3_7_18/0.8)]"
+      >
+        {tip && (
+          <>
+            <p className="text-sm leading-snug font-semibold text-balance text-white">{tip.title}</p>
+            {tip.detail && <p className="text-xs font-medium text-gray-200">{tip.detail}</p>}
+          </>
+        )}
+      </div>
     </motion.div>
   );
 }

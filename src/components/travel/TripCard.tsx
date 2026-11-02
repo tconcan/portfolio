@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { motion } from "motion/react";
 import { formatRange, mergePlaces, plotted, type TripGroup } from "../../data/trip";
 import { tripInfo } from "../../data/trips";
+import CountUp from "../ui/CountUp";
 import { GLASS_CARD, GRADIENT_TEXT } from "../ui/styles";
 
 interface Props {
@@ -30,17 +31,18 @@ export default function TripCard({ trips, selected, miles, onSelect }: Props) {
   const shown = selected.stops.filter(plotted);
   const usStates = new Set(shown.filter((s) => /^(usa|us|united states)$/i.test(s.country)).map((s) => s.region)).size;
   const countries = new Set(shown.map((s) => s.country || "USA")).size;
-  const first = shown[0];
   // Trips through the US count states; trips entirely abroad count countries.
   const inUS = (s: { country: string }) => !s.country || /^(usa|us|united states)$/i.test(s.country);
   const allUS = shown.some(inUS);
-  const stats: [string, string][] = [
-    ["Days", days ? `${days}` : "—"],
+  // [label, value, shown while the value isn't known yet]
+  const stats: [string, number | null, string][] = [
+    ["Days", days, "—"],
     // Unique places: a place visited twice (e.g. home at both ends) counts once.
-    ["Stops", `${mergePlaces(shown).length}`],
-    ["Miles", miles ? Math.round(miles).toLocaleString("en-US") : "…"],
-    allUS ? ["States", `${usStates}`] : ["Countries", `${countries}`],
+    ["Stops", mergePlaces(shown).length, "—"],
+    ["Miles", miles, "…"],
+    allUS ? ["States", usStates, "—"] : ["Countries", countries, "—"],
   ];
+  if (info.hideMiles) stats.splice(2, 1);
 
   const step = (dir: -1 | 1) => {
     const next = trips[(index + dir + trips.length) % trips.length];
@@ -100,23 +102,21 @@ export default function TripCard({ trips, selected, miles, onSelect }: Props) {
         transition={{ duration: 0.35 }}
         className="min-h-0 overflow-y-auto px-5 pt-5 pb-6 sm:px-7"
       >
-        <p className="text-sm text-gray-400">
+        {/* Name, then dates, then the write-up. */}
+        <h2 className={`text-3xl font-bold tracking-tight sm:text-4xl ${GRADIENT_TEXT}`}>{info.title}</h2>
+        <p className="mt-1.5 text-sm font-medium tracking-wide text-gray-400">
           {formatRange(selected.start, selected.end)}
-          {allUS && countries > 1 && ` · ${countries} countries`}
         </p>
-        <h2 className={`mt-1 text-3xl font-bold tracking-tight sm:text-4xl ${GRADIENT_TEXT}`}>{info.title}</h2>
-        {info.tagline && <p className="mt-2 text-base text-gray-300">{info.tagline}</p>}
+        {info.summary && <p className="mt-4 text-[0.95rem] leading-relaxed text-gray-300 sm:text-base">{info.summary}</p>}
 
-        <dl className="mt-5 grid grid-cols-4 gap-2 sm:gap-3">
-          {stats.map(([label, value]) => (
+        <dl className={`mt-5 grid ${stats.length === 3 ? "grid-cols-3" : "grid-cols-4"} gap-2 sm:gap-3`}>
+          {stats.map(([label, value, pending]) => (
             <div key={label} className="rounded-xl border border-white/10 bg-white/5 px-2 py-2.5 text-center sm:py-3">
-              <dd className="text-lg font-semibold text-white tabular-nums sm:text-xl">{value}</dd>
+              <dd className="text-lg font-semibold text-white tabular-nums sm:text-xl">{value ? <CountUp value={value} /> : pending}</dd>
               <dt className="text-[0.65rem] tracking-wide text-gray-400 uppercase sm:text-xs">{label}</dt>
             </div>
           ))}
         </dl>
-
-        {info.summary && <p className="mt-5 text-[0.95rem] leading-relaxed text-gray-300 sm:text-base">{info.summary}</p>}
 
         {info.highlights.length > 0 && (
           <>
@@ -130,13 +130,6 @@ export default function TripCard({ trips, selected, miles, onSelect }: Props) {
               ))}
             </ul>
           </>
-        )}
-
-        {first && (
-          <p className="mt-5 text-sm text-gray-500">
-            Starts in {first.name}
-            {first.region && `, ${first.region}`}
-          </p>
         )}
       </motion.div>
     </div>

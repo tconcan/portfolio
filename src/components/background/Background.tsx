@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 import { MetaballRenderer } from "./renderer";
 import { Simulation } from "./simulation";
+import StarField from "./StarField";
+
+/** Pages that swap the metaballs for a starry night sky. */
+const NIGHT_SKY = new Set(["/travel"]);
+const SWAP_MS = 1000; // crossfade; the metaballs pause once fully hidden
 
 const INTENSITY = 0.92; // final blob opacity over the gray-950 base
 const FADE_IN = 1.4; // seconds for the whole field to fade up on load
@@ -18,6 +23,8 @@ export default function Background() {
   const simRef = useRef<Simulation | null>(null);
   const [failed, setFailed] = useState(false);
   const { pathname } = useLocation();
+  const night = NIGHT_SKY.has(pathname);
+  const controls = useRef<{ start: () => void; stop: () => void } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -81,7 +88,7 @@ export default function Background() {
       if (reduceMotion.matches) drawStatic();
     };
     // Don't burn battery in background tabs.
-    const onVisibility = () => (document.hidden ? stop() : start());
+    const onVisibility = () => (document.hidden || pausedRef.current ? stop() : start());
     const onLost = (e: Event) => {
       e.preventDefault();
       stop();
@@ -96,15 +103,17 @@ export default function Background() {
       }
     };
 
+    controls.current = { start, stop };
     window.addEventListener("resize", onResize);
     document.addEventListener("visibilitychange", onVisibility);
     reduceMotion.addEventListener("change", start);
     canvas.addEventListener("webglcontextlost", onLost);
     canvas.addEventListener("webglcontextrestored", onRestored);
-    start();
+    if (!pausedRef.current) start();
 
     return () => {
       stop();
+      controls.current = null;
       simRef.current = null;
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisibility);
@@ -113,6 +122,22 @@ export default function Background() {
       canvas.removeEventListener("webglcontextrestored", onRestored);
     };
   }, []);
+
+  // Night-sky pages: fade the metaballs out, then pause them; resume (and fade
+  // back in) when leaving.
+  const pausedRef = useRef(night);
+  useEffect(() => {
+    if (!night) {
+      pausedRef.current = false;
+      if (!document.hidden) controls.current?.start();
+      return;
+    }
+    const id = window.setTimeout(() => {
+      pausedRef.current = true;
+      controls.current?.stop();
+    }, SWAP_MS);
+    return () => window.clearTimeout(id);
+  }, [night]);
 
   // Page transitions: give the blobs an outward kick from the screen centre so
   // the whole background "breathes" as one page leaves and the next arrives.
@@ -128,6 +153,15 @@ export default function Background() {
     }
   }, [pathname]);
 
-  if (failed) return <div className="bg-fallback" aria-hidden="true" />;
-  return <canvas ref={canvasRef} className="bg-canvas" aria-hidden="true" />;
+  const fade = { opacity: night ? 0 : 1, transition: `opacity ${SWAP_MS}ms ease-out` };
+  return (
+    <>
+      {failed ? (
+        <div className="bg-fallback" style={fade} aria-hidden="true" />
+      ) : (
+        <canvas ref={canvasRef} className="bg-canvas" style={fade} aria-hidden="true" />
+      )}
+      <StarField visible={night} />
+    </>
+  );
 }

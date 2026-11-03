@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en" data-bs-theme="dark">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title></title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+        <style>
+            .fullscreen-container {
+                box-sizing: border-box;
+                height: 100vh;
+                width: 100vw;
+                display: flex;
+                justify-content: center;
+            }
+
+            .scroll {
+                max-height: calc(100vh - 96px);
+                overflow-y: auto;
+            }
+
+            .grid-btn {
+                width: 100%;
+                height: 100%;
+                padding: 0;
+                margin: 0;
+                border: 0;
+            }
+
+            .badge {
+                font-size: 9px;
+            }
+
+            .badgev {
+                transform: translate(15px, 25px) rotate(270deg);
+                transform-origin: left;
+            }
+
+        </style>
+    </head>
+    <body>
+        <div class="fullscreen-container">
+            <div class="container-fluid p-5 h-100">
+                <div class="card scroll" style="width: 20rem; position: absolute; z-index: 1;">
+                    <div class="card-body bg-body-tertiary pb-3" >
+                        <button class="btn btn-primary w-100 mb-3" onclick="updateHabitat()">New habitat!</button>
+                        <button class="btn btn-primary w-100 mb-3" onclick="shuffleHabitat()">Shuffle habitat!</button>
+                        <div class="mb-3">
+                          <label for="particleCount">Particle count</label>
+                          <input class="form-control" type="number" id="particleCount" min="1" max="1500" value="1000" step="1" oninput="inBounds(event, 1, 1500, 1)">
+                        </div>
+                        <div>
+                          <label for="radius">Interaction radius</label>
+                          <input class="form-range" type="range" id="radius" min="6" max="100" value="15" step="0.01">
+                        </div>
+                        <div>
+                          <label for="forceMag">Force magnitude</label>
+                          <input class="form-range" type="range" id="forceMag" min="1" max="5" value="4" step="0.01">
+                        </div>
+                        <div>
+                          <label for="friction">Friction</label>
+                          <input class="form-range" type="range" id="friction" min="0" max="1" value="0.05" step="0.01">
+                        </div>
+                        <div class="form-check form-switch mb-3">
+                          <input class="form-check-input" type="checkbox" role="switch" id="looping" checked="true">
+                          <label class="form-check-label" for="looping">Loop simulation edges?</label>
+                        </div>
+                        <button id="pauseButton" class="btn btn-outline-primary w-100 mb-3" data-bs-toggle="button" onclick="togglePause()">Pause simulation</button>
+                        <div class="container p-0">
+                          <div class="row row-cols-2 w-100 mx-0">
+                            <div class="col-1 p-0"></div>
+                            <div class="col-11 p-0">
+                              <div class="container text-center px-0">
+                                <div class="row row-cols-6 w-100 mx-0">
+                                  <div class="col p-0">
+                                    <span class="m-0 badge rounded-pill" style="background-color: red;">Red</span>
+                                  </div>
+                                  <div class="col p-0">
+                                    <span class="m-0 badge rounded-pill" style="background-color: orange;">Orange</span>
+                                  </div>
+                                  <div class="col p-0">
+                                    <span class="m-0 badge rounded-pill" style="background-color: yellow; color: black;">Yellow</span>
+                                  </div>
+                                  <div class="col p-0">
+                                    <span class="m-0 badge rounded-pill" style="background-color: green;">Green</span>
+                                  </div>
+                                  <div class="col p-0">
+                                    <span class="m-0 badge rounded-pill" style="background-color: blue;">Blue</span>
+                                  </div>
+                                  <div class="col p-0">
+                                    <span class="m-0 badge rounded-pill" style="background-color: purple;">Purple</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div class="col-1 p-0">
+                              <div class="d-flex container text-center p-0 m-0 w-100" style="width: 10px; height: 262px;">
+                                <div class="row row-cols-1 w-100 mx-0">
+                                  <div class="col p-0 badgevc">
+                                    <span class="m-0 badge badgev rounded-pill" style="background-color: red;">Red</span>
+                                  </div>
+                                  <div class="col p-0 badgevc">
+                                    <span class="m-0 badge badgev rounded-pill" style="background-color: orange;">Orange</span>
+                                  </div>
+                                  <div class="col p-0 badgevc">
+                                    <span class="m-0 badge badgev rounded-pill" style="background-color: yellow; color: black;">Yellow</span>
+                                  </div>
+                                  <div class="col p-0 badgevc">
+                                    <span class="m-0 badge badgev rounded-pill" style="background-color: green;">Green</span>
+                                  </div>
+                                  <div class="col p-0 badgevc">
+                                    <span class="m-0 badge badgev rounded-pill" style="background-color: blue;">Blue</span>
+                                  </div>
+                                  <div class="col p-0 badgevc">
+                                    <span class="m-0 badge badgev rounded-pill" style="background-color: purple;">Purple</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                            <div class="col-11 p-0">
+                              <div class="d-flex container text-center p-0" style="width: 262px; height: 262px;">
+                                <div class="row row-cols-6 w-100 mx-0">
+                                  <div class="col p-0">
+                                    <button id="f-00" type="button" class="btn btn-secondary grid-btn" onclick="setColor(0, 0)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-01" type="button" class="btn btn-secondary grid-btn" onclick="setColor(0, 1)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-02" type="button" class="btn btn-secondary grid-btn" onclick="setColor(0, 2)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-03" type="button" class="btn btn-secondary grid-btn" onclick="setColor(0, 3)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-04" type="button" class="btn btn-secondary grid-btn" onclick="setColor(0, 4)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-05" type="button" class="btn btn-secondary grid-btn" onclick="setColor(0, 5)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-10" type="button" class="btn btn-secondary grid-btn" onclick="setColor(1, 0)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-11" type="button" class="btn btn-secondary grid-btn" onclick="setColor(1, 1)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-12" type="button" class="btn btn-secondary grid-btn" onclick="setColor(1, 2)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-13" type="button" class="btn btn-secondary grid-btn" onclick="setColor(1, 3)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-14" type="button" class="btn btn-secondary grid-btn" onclick="setColor(1, 4)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-15" type="button" class="btn btn-secondary grid-btn" onclick="setColor(1, 5)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-20" type="button" class="btn btn-secondary grid-btn" onclick="setColor(2, 0)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-21" type="button" class="btn btn-secondary grid-btn" onclick="setColor(2, 1)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-22" type="button" class="btn btn-secondary grid-btn" onclick="setColor(2, 2)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-23" type="button" class="btn btn-secondary grid-btn" onclick="setColor(2, 3)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-24" type="button" class="btn btn-secondary grid-btn" onclick="setColor(2, 4)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-25" type="button" class="btn btn-secondary grid-btn" onclick="setColor(2, 5)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-30" type="button" class="btn btn-secondary grid-btn" onclick="setColor(3, 0)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-31" type="button" class="btn btn-secondary grid-btn" onclick="setColor(3, 1)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-32" type="button" class="btn btn-secondary grid-btn" onclick="setColor(3, 2)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-33" type="button" class="btn btn-secondary grid-btn" onclick="setColor(3, 3)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-34" type="button" class="btn btn-secondary grid-btn" onclick="setColor(3, 4)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-35" type="button" class="btn btn-secondary grid-btn" onclick="setColor(3, 5)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-40" type="button" class="btn btn-secondary grid-btn" onclick="setColor(4, 0)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-41" type="button" class="btn btn-secondary grid-btn" onclick="setColor(4, 1)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-42" type="button" class="btn btn-secondary grid-btn" onclick="setColor(4, 2)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-43" type="button" class="btn btn-secondary grid-btn" onclick="setColor(4, 3)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-44" type="button" class="btn btn-secondary grid-btn" onclick="setColor(4, 4)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-45" type="button" class="btn btn-secondary grid-btn" onclick="setColor(4, 5)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-50" type="button" class="btn btn-secondary grid-btn" onclick="setColor(5, 0)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-51" type="button" class="btn btn-secondary grid-btn" onclick="setColor(5, 1)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-52" type="button" class="btn btn-secondary grid-btn" onclick="setColor(5, 2)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-53" type="button" class="btn btn-secondary grid-btn" onclick="setColor(5, 3)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-54" type="button" class="btn btn-secondary grid-btn" onclick="setColor(5, 4)"></button>
+                                  </div>
+                                  <div class="col p-0">
+                                    <button id="f-55" type="button" class="btn btn-secondary grid-btn" onclick="setColor(5, 5)"></button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="mt-2" style="opacity: 50%;">
+                            <p class="mb-0"><small>KE: <span id="energyValue">{ % energy % }</span> J</small></p>
+                        </div>
+                        <div>
+                            <canvas id="chartCanvas"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <canvas id="graphCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0;"></canvas>
+            </div>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.6/dist/umd/popper.min.js" integrity="sha384-oBqDVmMz9ATKxIep9tiCxS/Z9fNfEXiDAYTujMAeBAsjFuCZSmKbSSUnQlmh/jp3" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/js/bootstrap.min.js" integrity="sha384-cuYeSxntonz0PPNlHhBs68uyIAVpIIOZZ5JqeqvYYIcEL727kskC66kF92t6Xl2V" crossorigin="anonymous"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <script src="life.js"></script>
+    </body>
+</html>

@@ -19,9 +19,9 @@ export interface TripInfo {
 export const TRIP_INFO: Record<string, TripInfo> = {
   Tucka: {
     title: "The Tucka Trip",
-    tagline: "A lap of the lower 48, one national park at a time",
+    tagline: "A counter-clockwise lap of the states, one destination at a time",
     summary:
-      "My post-grad trip. Me and a high school buddy living out of 2015 Chevy Equinox with 175k miles on it for four and a half months. National Parks, Cities, ",
+      "My post-grad trip. Me and a high school buddy living out of 2015 Chevy Equinox with 175k miles on it for four and a half months. National parks, cities, and friends made the trip worth it.",
     highlights: [
       "Getting comfortable with being uncomfortable",
       "Experiencing a diversity of living standards",
@@ -29,18 +29,17 @@ export const TRIP_INFO: Record<string, TripInfo> = {
       "One last stretch of freedom before starting work",
     ],
   },
-  // TODO(Tom): placeholder fluff, replace with the real story.
   "Spring Break '26": {
     title: "Spring Break '26",
     hideMiles: true,
     tagline: "Pyrenees powder, Catalan sun and a train to Berlin",
     summary:
-      "Two weeks, four countries and not much sleep: fly into Barcelona, drive straight up into the Pyrenees for a week of skiing in Andorra, thaw out back on the Catalan coast, then hop a flight to Amsterdam and a train across to Berlin.",
+      "Two weeks, four countries and endless night at Shôko: fly into Barcelona, shuttle straight up into the Pyrenees for a week of skiing at Grandvalira in Andorra, thaw out back on the Catalan coast, then hop a flight to Amsterdam and a train across to Berlin.",
     highlights: [
-      "A week on the slopes at Pas de la Casa",
-      "Tapas crawl through the Gothic Quarter",
-      "Canals and bikes in Amsterdam",
-      "Overland to Berlin by rail",
+      "5:00 am early rises in Andorra",
+      "5:00 am late nights in Barcelona",
+      "Canal cruise and bikes in Amsterdam",
+      "Beir and brats in Berlin",
     ],
   },
 };

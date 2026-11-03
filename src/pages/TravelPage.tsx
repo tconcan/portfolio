@@ -119,7 +119,7 @@ export default function TravelPage() {
           variants={rise}
           role="group"
           aria-label="Globe view"
-          className="pointer-events-auto relative flex rounded-full border border-white/10 bg-gray-900/60 p-0.5 backdrop-blur-md sm:p-1 lg:col-start-1 lg:row-start-2 lg:justify-self-center"
+          className="pointer-events-auto relative flex rounded-full border border-white/10 bg-gray-900/60 p-0.5 backdrop-blur-md pointer-coarse:bg-gray-900/85 pointer-coarse:backdrop-blur-none sm:p-1 lg:col-start-1 lg:row-start-2 lg:justify-self-center"
         >
           {VIEWS.map((v) => {
             const active = view === v.id;

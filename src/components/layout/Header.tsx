@@ -62,10 +62,10 @@ export default function Header() {
       variants={bar}
       initial="hidden"
       animate="show"
-      className={`fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md transition-[background-color,border-color,box-shadow] duration-500 ${
+      className={`fixed inset-x-0 top-0 z-50 border-b backdrop-blur-md pointer-coarse:backdrop-blur-none transition-[background-color,border-color,box-shadow] duration-500 ${
         scrolled || menuOpen
-          ? "border-white/10 bg-gray-900/85 shadow-lg shadow-black/30"
-          : "border-white/5 bg-gray-900/70"
+          ? "border-white/10 bg-gray-900/85 shadow-lg shadow-black/30 pointer-coarse:bg-gray-900/95"
+          : "border-white/5 bg-gray-900/70 pointer-coarse:bg-gray-900/90"
       }`}
       style={{ paddingLeft: "env(safe-area-inset-left)", paddingRight: "env(safe-area-inset-right)" }}
     >

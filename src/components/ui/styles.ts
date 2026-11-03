@@ -6,7 +6,7 @@ export const OUTLINE_BUTTON =
 
 /** Translucent glass surface for content cards. */
 export const GLASS_CARD =
-  "rounded-2xl md:rounded-3xl border border-white/10 bg-gray-900/45 shadow-2xl shadow-black/40 backdrop-blur-md";
+  "rounded-2xl md:rounded-3xl border border-white/10 bg-gray-900/45 shadow-2xl shadow-black/40 backdrop-blur-md pointer-coarse:bg-gray-900/85 pointer-coarse:backdrop-blur-none";
 
 /** Purple → blue → cyan text, matching the background gradient. */
 export const GRADIENT_TEXT = "bg-gradient-to-r from-purple-400 via-blue-400 to-cyan-300 bg-clip-text text-transparent";

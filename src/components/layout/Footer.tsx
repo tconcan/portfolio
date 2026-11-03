@@ -16,7 +16,7 @@ function SocialGraphic({ icon }: { icon: SocialIcon }) {
 /** Site footer: contact email, socials, copyright. Same content as the old site, glass styling. */
 export default function Footer() {
   return (
-    <footer className="mt-12 border-t border-white/10 bg-gray-900/70 backdrop-blur-md" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+    <footer className="mt-12 border-t border-white/10 bg-gray-900/70 backdrop-blur-md pointer-coarse:bg-gray-900/90 pointer-coarse:backdrop-blur-none" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
       {/* Thin gradient rule along the top edge, echoing the background palette. */}
       <div aria-hidden="true" className="h-px bg-gradient-to-r from-transparent via-blue-400/60 to-transparent" />
 

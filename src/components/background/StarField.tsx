@@ -59,7 +59,8 @@ export default function StarField({ visible }: { visible: boolean }) {
     const rand = (a: number, b: number) => a + Math.random() * (b - a);
 
     const build = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // 1.5× on phones, like the globe: stars are soft dots anyway.
+      dpr = Math.min(window.devicePixelRatio || 1, window.matchMedia("(pointer: coarse)").matches ? 1.5 : 2);
       w = canvas.clientWidth;
       h = canvas.clientHeight;
       canvas.width = Math.round(w * dpr);

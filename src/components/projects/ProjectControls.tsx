@@ -7,7 +7,7 @@ import { EASE } from "../ui/motion";
 import { GLASS_CARD } from "../ui/styles";
 import { ORG_PILL } from "./orgStyles";
 
-const TRACK = "relative flex rounded-full border border-white/10 bg-gray-900/60 p-0.5 backdrop-blur-md sm:p-1";
+const TRACK = "relative flex rounded-full border border-white/10 bg-gray-900/60 p-0.5 backdrop-blur-md pointer-coarse:bg-gray-900/85 pointer-coarse:backdrop-blur-none sm:p-1";
 const HIGHLIGHT =
   "absolute inset-0 rounded-full bg-gradient-to-r from-plum/80 via-blue-500/70 to-cyan-500/70 shadow-[0_0_18px_rgb(96_165_250/0.35)]";
 const GROUP_LABEL = "text-xs font-semibold tracking-[0.15em] text-gray-400 uppercase";
@@ -100,8 +100,8 @@ export default function ProjectControls(p: Props) {
             onClick={p.onToggleOpen}
             aria-expanded={p.open}
             aria-controls={PANEL_ID}
-            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium backdrop-blur-md transition-colors sm:px-4 sm:py-2 sm:text-sm ${
-              lit ? "border-purple-300/50 bg-purple-500/20 text-white" : "border-white/10 bg-gray-900/60 text-gray-300 hover:text-white"
+            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium backdrop-blur-md pointer-coarse:backdrop-blur-none transition-colors sm:px-4 sm:py-2 sm:text-sm ${
+              lit ? "border-purple-300/50 bg-purple-500/20 text-white" : "border-white/10 bg-gray-900/60 text-gray-300 hover:text-white pointer-coarse:bg-gray-900/85"
             }`}
           >
             <FilterIcon className="size-4" />

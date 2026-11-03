@@ -47,7 +47,7 @@ export default function ProjectCard({ project, orgPicked, techPicked, onOrg, onT
           onClick={() => onOrg(project.org)}
           aria-pressed={orgPicked}
           title={`Filter by ${project.org}`}
-          className={`absolute top-3 left-3 rounded-full border px-2.5 py-0.5 text-xs font-semibold shadow-md shadow-black/40 backdrop-blur-md transition hover:brightness-125 ${ORG_PILL[project.org]} ${orgPicked ? "ring-2 ring-white/70" : ""}`}
+          className={`absolute top-3 left-3 rounded-full border px-2.5 py-0.5 text-xs font-semibold shadow-md shadow-black/40 backdrop-blur-md pointer-coarse:backdrop-blur-none transition hover:brightness-125 ${ORG_PILL[project.org]} ${orgPicked ? "ring-2 ring-white/70" : ""}`}
         >
           {project.org}
         </button>

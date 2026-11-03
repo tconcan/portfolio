@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { geoArea, geoContains, geoDistance, geoGraticule10, geoInterpolate, geoOrthographic, geoPath } from "d3-geo";
+import { geoArea, geoCentroid, geoContains, geoDistance, geoGraticule10, geoInterpolate, geoOrthographic, geoPath } from "d3-geo";
 import { feature, merge, mesh } from "topojson-client";
 import type { Feature, FeatureCollection, Geometry, MultiLineString, Position } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { groupTrips, mergePlaces, placeLabel, plotted, type Stop, type Trip } from "../../data/trip";
 import { loadTrip } from "../../data/tripData";
-import { legKey, legMode, watchLegs, type Leg, type LegMode } from "../../data/tripRoutes";
+import { legKey, legMode, simplify, watchLegs, type Leg, type LegMode } from "../../data/tripRoutes";
 import { EASE } from "../ui/motion";
 
 export type GlobeView = "trips" | "us" | "world";
@@ -45,7 +45,7 @@ const ANTARCTICA = "010";
  * degree keeps each edge where the source data meant it.
  */
 const MAX_STEP = 0.5;
-function densifyRing(ring: Position[]): Position[] {
+function densifyRing(ring: Position[], step = MAX_STEP): Position[] {
   if (ring.length < 2) return ring;
   const out: Position[] = [];
   for (let i = 0; i < ring.length - 1; i++) {
@@ -54,7 +54,7 @@ function densifyRing(ring: Position[]): Position[] {
     // At least one point per edge, so repeated points don't empty a ring;
     // edges that wrap across the date line (a 360° jump) stay as they are.
     const wraps = Math.abs(x1 - x0) > 180;
-    const n = wraps ? 1 : Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) / MAX_STEP));
+    const n = wraps ? 1 : Math.max(1, Math.ceil(Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)) / step));
     for (let k = 0; k < n; k++) out.push([x0 + ((x1 - x0) * k) / n, y0 + ((y1 - y0) * k) / n]);
   }
   out.push(ring[ring.length - 1]);
@@ -65,11 +65,83 @@ function rewind<G extends Geometry>(g: G): G {
   if (g.type === "MultiPolygon") return { ...g, coordinates: g.coordinates.map((p) => p.map((r) => [...r].reverse())) };
   return g;
 }
-function densify<G extends Geometry>(g: G): G {
-  if (g.type === "Polygon") return { ...g, coordinates: g.coordinates.map(densifyRing) };
-  if (g.type === "MultiPolygon") return { ...g, coordinates: g.coordinates.map((p) => p.map(densifyRing)) };
+function densify<G extends Geometry>(g: G, step = MAX_STEP): G {
+  const ring = (r: Position[]) => densifyRing(r, step);
+  if (g.type === "Polygon") return { ...g, coordinates: g.coordinates.map(ring) };
+  if (g.type === "MultiPolygon") return { ...g, coordinates: g.coordinates.map((p) => p.map(ring)) };
   return g;
 }
+/**
+ * Douglas–Peucker that also handles closed rings (islands, lakes): a ring
+ * starts and ends on the same point, which would otherwise collapse it, so
+ * it's split at its farthest point and each half simplified.
+ */
+function simplifyLine(pts: [number, number][], tol: number): [number, number][] {
+  const n = pts.length;
+  if (n < 4) return pts;
+  const [x0, y0] = pts[0];
+  const [xn, yn] = pts[n - 1];
+  if (x0 !== xn || y0 !== yn) return simplify(pts, tol);
+  let far = 1;
+  let best = -1;
+  for (let i = 1; i < n - 1; i++) {
+    const d = (pts[i][0] - x0) ** 2 + (pts[i][1] - y0) ** 2;
+    if (d > best) {
+      best = d;
+      far = i;
+    }
+  }
+  const out = [...simplify(pts.slice(0, far + 1), tol), ...simplify(pts.slice(far), tol).slice(1)];
+  return out.length >= 4 ? out : pts; // keep tiny rings as they are
+}
+
+/**
+ * A copy of a topology with every arc simplified (Douglas–Peucker, in
+ * degrees). Arcs are shared between neighbours, so borders stay matched.
+ */
+function simplifyTopology<T extends Topology>(t: T, tol: number): T {
+  const { transform, ...rest } = t;
+  const arcs = t.arcs.map((arc) => {
+    let pts = arc as [number, number][];
+    if (transform) {
+      // Undo the quantized, delta-encoded storage.
+      const [sx, sy] = transform.scale;
+      const [tx, ty] = transform.translate;
+      let x = 0;
+      let y = 0;
+      pts = arc.map(([dx, dy]) => {
+        x += dx;
+        y += dy;
+        return [x * sx + tx, y * sy + ty];
+      });
+    }
+    return simplifyLine(pts, tol);
+  });
+  return { ...rest, arcs } as unknown as T;
+}
+const simplifyRings = <G extends Geometry>(g: G, tol: number): G => {
+  const ring = (r: Position[]) => simplifyLine(r as [number, number][], tol);
+  if (g.type === "Polygon") return { ...g, coordinates: g.coordinates.map(ring) };
+  if (g.type === "MultiPolygon") return { ...g, coordinates: g.coordinates.map((p) => p.map(ring)) };
+  return g;
+};
+/**
+ * Detail levels for drawing (tolerance in degrees, coarsest first). The
+ * globe uses the coarsest one whose error stays under ~half a pixel at its
+ * current size, so it looks the same but projects far fewer points from
+ * afar. Picking always uses the full-detail shapes.
+ */
+const LOD_TOLERANCES = [0.4, 0.15, 0.05];
+/**
+ * Densify step for the simplified levels. The bowing it corrects is far
+ * below a pixel at those sizes (about 0.004° on a 2° edge), so they need
+ * far fewer added points than full detail does.
+ */
+const LOD_DENSIFY = 2;
+const LOD_PX = 0.5;
+/** Lakes smaller than this on screen (px²) aren't drawn. */
+const MIN_LAKE_PX = 4;
+
 const US_CENTER = { lon: -96, lat: 38 };
 const WORLD_RADIUS = 0.4; // globe radius as a fraction of the shorter side
 const WORLD_TILT = 18; // world view leans north a little
@@ -203,7 +275,6 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     const lakes = lakeData.features.map((f) =>
       geoArea(f) > 2 * Math.PI ? { ...f, geometry: rewind(f.geometry) } : f,
     );
-    const lakeLayer: FeatureCollection = { type: "FeatureCollection", features: lakes };
     const countries = (feature(world, world.objects.countries) as FeatureCollection<Geometry, Named>).features
       .filter((f) => f.id !== USA)
       // Antarctica wraps the pole and the date line; extra points there
@@ -217,10 +288,53 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       properties: { name: "United States" },
       geometry: merge(us, us.objects.states.geometries as Parameters<typeof merge>[1]),
     };
-    const countryLayer: FeatureCollection = { type: "FeatureCollection", features: countries };
-    const stateLayer: FeatureCollection = { type: "FeatureCollection", features: states };
-    const stateBorders: MultiLineString = mesh(us, us.objects.states, (a, b) => a !== b);
-    const nation: MultiLineString = mesh(us, us.objects.states, (a, b) => a === b);
+    // Drawing layers at each detail level (see LOD_TOLERANCES), plus full.
+    const lakeArea = lakes.map((f) => geoArea(f));
+    const buildLayers = (w: WorldTopo, u: UsTopo, tol: number) => ({
+      countries: {
+        type: "FeatureCollection",
+        features: (feature(w, w.objects.countries) as FeatureCollection<Geometry, Named>).features
+          .filter((f) => f.id !== USA)
+          .map((f) => (f.id === ANTARCTICA ? f : { ...f, geometry: densify(f.geometry, tol ? LOD_DENSIFY : MAX_STEP) })),
+      } as FeatureCollection<Geometry, Named>,
+      states: feature(u, u.objects.states) as FeatureCollection,
+      /** The US as one shape: what's filled from afar instead of every state. */
+      usa: merge(u, u.objects.states.geometries as Parameters<typeof merge>[1]),
+      stateBorders: mesh(u, u.objects.states, (a, b) => a !== b) as MultiLineString,
+      nation: mesh(u, u.objects.states, (a, b) => a === b) as MultiLineString,
+      lakes: tol ? lakes.map((f) => ({ ...f, geometry: simplifyRings(f.geometry, tol) })) : lakes,
+    });
+    const levels = [
+      ...LOD_TOLERANCES.map((tol) => ({ tol, ...buildLayers(simplifyTopology(world, tol), simplifyTopology(us, tol), tol) })),
+      { tol: 0, ...buildLayers(world, us, 0) },
+    ];
+    // Each country's / lake's bounding cap (centre, angular radius), so
+    // shapes wholly on the far side of the globe can be skipped before d3
+    // projects and clips every one of their points.
+    const capOf = (f: Feature): [[number, number], number] => {
+      const c = geoCentroid(f);
+      let r = 0;
+      const visit = (pos: Position[]) => {
+        for (const p of pos) r = Math.max(r, geoDistance(c, p as [number, number]));
+      };
+      const g = f.geometry;
+      if (g.type === "Polygon") g.coordinates.forEach(visit);
+      else if (g.type === "MultiPolygon") g.coordinates.forEach((poly) => poly.forEach(visit));
+      return [c, r + 0.02]; // a little slack for edges bowing past their ends
+    };
+    // Every level lists the same countries in the same order.
+    const countryCaps = levels[levels.length - 1].countries.features.map(capOf);
+    const lakeCaps = lakes.map(capOf);
+    const HALF = Math.PI / 2;
+    /** Not wholly on the far side, as seen from `view` (lon, lat). */
+    const facing = (cap: [[number, number], number] | undefined, view: [number, number]) =>
+      !cap || geoDistance(cap[0], view) - cap[1] < HALF;
+
+    /** The layers to draw at globe radius `R` (px). */
+    const layersFor = (R: number) => {
+      const degPerPx = DEG / R;
+      return levels.find((l) => l.tol <= LOD_PX * degPerPx) ?? levels[levels.length - 1];
+    };
     const graticule = geoGraticule10();
     const sphere = { type: "Sphere" } as const;
 
@@ -840,8 +954,11 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
       ctx.stroke();
 
+      const L = layersFor(R);
+      const view: [number, number] = [cam.lon, cam.lat];
+
       ctx.beginPath();
-      path(countryLayer);
+      L.countries.features.forEach((f, i) => facing(countryCaps[i], view) && path(f));
       ctx.fillStyle = "rgba(148, 163, 184, 0.20)";
       ctx.fill();
       ctx.lineWidth = 0.6;
@@ -851,8 +968,10 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       // The US is styled like any other country from afar and picks up its
       // highlight as you zoom in.
 
+      // From afar the US fills as one shape; the states (same outline, many
+      // more points) only once their borders start to show.
       ctx.beginPath();
-      path(stateLayer);
+      path(zoomed > 0 ? L.states : L.usa);
       ctx.fillStyle = "rgba(148, 163, 184, 0.20)";
       ctx.fill();
       if (zoomed > 0) {
@@ -871,7 +990,9 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       }
 
       ctx.beginPath();
-      path(lakeLayer);
+      for (let i = 0; i < L.lakes.length; i++) {
+        if (lakeArea[i] * R * R >= MIN_LAKE_PX && facing(lakeCaps[i], view)) path(L.lakes[i]);
+      }
       ctx.fillStyle = water;
       ctx.fill();
       ctx.lineWidth = 0.5;
@@ -880,7 +1001,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
 
       if (zoomed > 0) {
         ctx.beginPath();
-        path(stateBorders);
+        path(L.stateBorders);
         ctx.lineWidth = 0.7;
         ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 * zoomed})`;
         ctx.stroke();
@@ -888,7 +1009,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
 
       // National border: a plain country line from afar, violet up close.
       ctx.beginPath();
-      path(nation);
+      path(L.nation);
       ctx.lineWidth = 0.6 + 0.5 * zoomed;
       ctx.strokeStyle = `rgba(${255 - 59 * zoomed}, ${255 - 74 * zoomed}, ${255 - 2 * zoomed}, ${0.18 + 0.67 * zoomed})`;
       ctx.stroke();
@@ -955,7 +1076,8 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       ay = box.top - rect.top + box.height / 2;
       aw = box.width;
       ah = box.height;
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      // 1.5× on phones (44% fewer pixels per frame than 2×; still sharp).
+      dpr = Math.min(window.devicePixelRatio || 1, window.matchMedia("(pointer: coarse)").matches ? 1.5 : 2);
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       // Keep the US filling the frame on resize, but not before the opening
@@ -1088,11 +1210,26 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     const easeInOut = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
     const easeOut = (t: number) => 1 - (1 - t) ** 2.4;
     const easeSine = (t: number) => (1 - Math.cos(Math.PI * t)) / 2;
+    // Nothing is drawn while the globe is scrolled out of view. The camera
+    // and animations keep advancing, so it's current when it comes back.
+    let onScreen = true;
+    const io = new IntersectionObserver(([entry]) => {
+      onScreen = entry.isIntersecting;
+      if (onScreen) dirty = true;
+    });
+    io.observe(anchor);
+    // On phones the idle world spin redraws at most ~30 times a second
+    // (a little under 1/30 s, so 60 Hz screens land on every other frame).
+    const coarse = window.matchMedia("(pointer: coarse)").matches;
+    const SPIN_FRAME_MS = 1000 / 30 - 4;
+    let lastDraw = 0;
+
     let raf = 0;
     let last = performance.now();
     const frame = (now: number) => {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
+      let spinning = false; // only the idle spin changed this frame
       if (flight) {
         const t = Math.min(1, (now - flight.start) / flight.dur);
         const { from, to, spiral } = flight;
@@ -1113,6 +1250,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       } else if (viewRef.current === "world" && !drag && !overGlobe && !reduceMotion) {
         cam.lon += SPIN * dt;
         dirty = true;
+        spinning = true;
       }
       // The route draws itself in once the opening move has settled.
       if (selectedRoute() && routeProgress < 1) {
@@ -1125,11 +1263,17 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
           routeProgress = easeSine(Math.min(1, Math.max(0, (now - routeStart) / ms)));
         }
         dirty = true;
+        spinning = false;
       }
-      if (stepMarkers(dt)) dirty = true;
-      if (dirty) {
+      if (stepMarkers(dt)) {
+        dirty = true;
+        spinning = false;
+      }
+      const throttled = coarse && spinning && now - lastDraw < SPIN_FRAME_MS;
+      if (dirty && onScreen && !throttled) {
         draw();
         dirty = false;
+        lastDraw = now;
       }
       raf = requestAnimationFrame(frame);
     };
@@ -1140,6 +1284,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
+      io.disconnect();
       canvas.removeEventListener("pointerdown", onDown);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerup", onUp);

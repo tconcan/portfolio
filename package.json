@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "dev:phone": "vite --host",
-    "routes": "node scripts/trip-routes.mjs"
+    "routes": "node scripts/trip-routes.mjs",
+    "deploy": "npm run build && npx wrangler deploy"
   },
   "dependencies": {
     "d3-geo": "^3.1.1",

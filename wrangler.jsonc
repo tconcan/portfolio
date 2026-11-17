@@ -1,0 +1,22 @@
+// Cloudflare Workers deployment. Same Worker name as the old site, so
+// deploying here replaces it in place: its workers.dev URL and any custom
+// domain stay attached. Serves the Vite build (./dist) as static assets.
+{
+  "$schema": "https://unpkg.com/wrangler@4/config-schema.json",
+  "name": "portfolio",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-05-20",
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // React Router handles /projects and /travel in the browser, so unknown
+    // paths must return index.html instead of 404 (fixes reloading them).
+    "not_found_handling": "single-page-application",
+    // Only project videos go through worker/index.ts (Range support for iOS
+    // Safari); everything else is served straight from the assets.
+    "run_worker_first": ["/media/projects/*.mp4"]
+  }
+}

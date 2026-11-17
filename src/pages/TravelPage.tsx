@@ -150,7 +150,7 @@ export default function TravelPage() {
         <div
           ref={stageRef}
           aria-hidden="true"
-          className="mt-2 aspect-square w-full max-w-[calc(100svh-12rem)] sm:aspect-[4/3] sm:max-w-[min(64rem,calc((100svh-21rem)*4/3))] lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:mt-0 lg:aspect-auto lg:h-[calc(100svh-9rem)] lg:max-w-none"
+          className="mt-2 aspect-[3/2] w-full max-w-[calc((100svh-12rem)*3/2)] sm:aspect-[4/3] sm:max-w-[min(64rem,calc((100svh-21rem)*4/3))] lg:col-start-2 lg:row-span-4 lg:row-start-1 lg:mt-0 lg:aspect-auto lg:h-[calc(100svh-9rem)] lg:max-w-none"
         />
 
         {/* One card per view, all in the same spot. */}

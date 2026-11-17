@@ -1,12 +1,24 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { motion, useReducedMotion } from "motion/react";
-import { geoArea, geoCentroid, geoContains, geoDistance, geoGraticule10, geoInterpolate, geoOrthographic, geoPath } from "d3-geo";
+import {
+  geoArea,
+  geoCentroid,
+  geoContains,
+  geoDistance,
+  geoGraticule10,
+  geoInterpolate,
+  geoNaturalEarth1,
+  geoOrthographic,
+  geoPath,
+  type GeoProjection,
+} from "d3-geo";
 import { feature, merge, mesh } from "topojson-client";
 import type { Feature, FeatureCollection, Geometry, MultiLineString, Position } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { groupTrips, mergePlaces, placeLabel, plotted, type Stop, type Trip } from "../../data/trip";
 import { loadTrip } from "../../data/tripData";
 import { legKey, legMode, simplify, watchLegs, type Leg, type LegMode } from "../../data/tripRoutes";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { EASE } from "../ui/motion";
 
 export type GlobeView = "trips" | "us" | "world";
@@ -142,6 +154,18 @@ const LOD_PX = 0.5;
 /** Lakes smaller than this on screen (px²) aren't drawn. */
 const MIN_LAKE_PX = 4;
 
+/**
+ * Phones get a flat map instead of the globe: easier to read on a small
+ * screen and far cheaper to draw (nothing moves until you touch it).
+ * Matches Tailwind's `sm` breakpoint, where the stage box changes shape.
+ */
+const FLAT_QUERY = "(max-width: 639px)";
+/** Corners of the lower 48, for fitting the US on the flat map. */
+const LOWER_48: [number, number][] = [
+  [-124.8, 48.4], [-124.4, 40.4], [-117.1, 32.5], [-97.4, 25.8], [-80.1, 25.1],
+  [-75.5, 35.2], [-67, 44.9], [-95.2, 49.4],
+];
+
 const US_CENTER = { lon: -96, lat: 38 };
 const WORLD_RADIUS = 0.4; // globe radius as a fraction of the shorter side
 const WORLD_TILT = 18; // world view leans north a little
@@ -210,6 +234,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
   const hoverRef = useRef(onHover);
   hoverRef.current = onHover;
   const reduceMotion = useReducedMotion() ?? false;
+  const flat = useMediaQuery(FLAT_QUERY);
   const [data, setData] = useState<GlobeData | null>(null);
   const [failed, setFailed] = useState(false);
   // The trip loads separately so the globe never waits on the sheet.
@@ -328,7 +353,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     const HALF = Math.PI / 2;
     /** Not wholly on the far side, as seen from `view` (lon, lat). */
     const facing = (cap: [[number, number], number] | undefined, view: [number, number]) =>
-      !cap || geoDistance(cap[0], view) - cap[1] < HALF;
+      flat || !cap || geoDistance(cap[0], view) - cap[1] < HALF;
 
     /** The layers to draw at globe radius `R` (px). */
     const layersFor = (R: number) => {
@@ -338,7 +363,30 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     const graticule = geoGraticule10();
     const sphere = { type: "Sphere" } as const;
 
-    const projection = geoOrthographic().clipAngle(90).precision(0.6);
+    // Globe: orthographic, turned by rotation. Flat map: Natural Earth, turned
+    // east-west by rotation but moved north-south by re-centring, so shapes
+    // never shear as you pan.
+    const projection: GeoProjection = flat ? geoNaturalEarth1().precision(0.6) : geoOrthographic().clipAngle(90).precision(0.6);
+    const aim = (p: GeoProjection, lon: number, lat: number) =>
+      flat ? p.rotate([-lon, 0]).center([0, lat]) : p.rotate([-lon, -lat]);
+    /** Half-width / half-height of `pts` on a unit-scale map centred on (lon, lat). */
+    const unitExtent = (pts: [number, number][], lon: number, lat: number): [number, number] => {
+      const p = aim((flat ? geoNaturalEarth1() : geoOrthographic().clipAngle(90)).scale(1).translate([0, 0]), lon, lat);
+      let mx = 0.02;
+      let my = 0.02;
+      for (const pt of pts) {
+        const q = p(pt);
+        if (!q) continue;
+        mx = Math.max(mx, Math.abs(q[0]));
+        my = Math.max(my, Math.abs(q[1]));
+      }
+      return [mx, my];
+    };
+    /** The flat map's whole outline at unit scale (it's symmetric about 0, 0). */
+    const flatOutline = (() => {
+      const [[x0, y0], [x1, y1]] = geoPath(geoNaturalEarth1().scale(1).translate([0, 0])).bounds({ type: "Sphere" });
+      return [x1 - x0, y1 - y0] as const;
+    })();
     const path = geoPath(projection, ctx);
 
     // ---- Camera ------------------------------------------------------------
@@ -354,13 +402,24 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     // Radius at which the lower 48 fill the frame (about 0.82r wide and
     // 0.48r tall when centred, in orthographic), within the stage box; the
     // rest of the globe simply runs off the page.
-    const usRadius = () => Math.min((0.92 * aw) / 0.82, (0.95 * ah) / 0.48) / base();
+    const usRadius = () => {
+      if (!flat) return Math.min((0.92 * aw) / 0.82, (0.95 * ah) / 0.48) / base();
+      const [mx, my] = unitExtent(LOWER_48, US_CENTER.lon, US_CENTER.lat);
+      return Math.min((0.92 * aw) / (2 * mx), (0.92 * ah) / (2 * my)) / base();
+    };
+    /** World view size: the globe at a fixed share of the stage; the flat map fitted whole. */
+    const worldRadius = () =>
+      flat ? Math.min((0.96 * aw) / flatOutline[0], (0.96 * ah) / flatOutline[1]) / base() : WORLD_RADIUS;
     const target = (v: GlobeView, from: Camera): Camera =>
       v === "trips"
         ? frameTrip()
         : v === "us"
           ? { ...US_CENTER, r: usRadius(), ox: 0 }
-          : { lon: from.lon, lat: WORLD_TILT, r: WORLD_RADIUS, ox: 0 };
+          : flat
+            ? // Centred on Greenwich like a classic world map, so the edge
+              // falls in the Pacific rather than through Asia.
+              { lon: 0, lat: 0, r: worldRadius(), ox: 0 }
+            : { lon: from.lon, lat: WORLD_TILT, r: WORLD_RADIUS, ox: 0 };
 
     /** Fit the selected trip, beside the card when the card is beside the globe. */
     const frameTrip = (): Camera => {
@@ -378,17 +437,9 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       const lats = framed.map((c) => c[1]);
       const lon0 = (Math.min(...lons) + Math.max(...lons)) / 2;
       const lat0 = (Math.min(...lats) + Math.max(...lats)) / 2;
-      const p0 = lat0 / DEG;
-      let mx = 0.02;
-      let my = 0.02;
-      for (const [lon, lat] of framed) {
-        const l = (lon - lon0) / DEG;
-        const p = lat / DEG;
-        mx = Math.max(mx, Math.abs(Math.cos(p) * Math.sin(l)));
-        my = Math.max(my, Math.abs(Math.cos(p0) * Math.sin(p) - Math.sin(p0) * Math.cos(p) * Math.cos(l)));
-      }
+      const [mx, my] = unitExtent(framed, lon0, lat0);
       const px = Math.min((availW * 0.88) / (2 * mx), (ah * 0.86) / (2 * my));
-      return { lon: lon0, lat: lat0, r: Math.max(WORLD_RADIUS, Math.min(40, px / base())), ox: 0 };
+      return { lon: lon0, lat: lat0, r: Math.max(worldRadius(), Math.min(40, px / base())), ox: 0 };
     };
 
     // Starts at world distance, turned well away from the US.
@@ -560,15 +611,18 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
     // Opening move: spiral in from world distance to the US.
     const intro = () => {
       started = true;
-      if (reduceMotion || viewRef.current !== "us") return goTo.current(viewRef.current);
+      // The flat map opens on the whole world, then glides to the US.
+      if (flat) Object.assign(cam, target("world", cam));
+      if (flat || reduceMotion || viewRef.current !== "us") return goTo.current(viewRef.current);
       const to = target("us", cam);
       flight = { from: { ...cam }, to, start: performance.now(), dur: INTRO_MS, spiral: true };
     };
 
     // 0 in world view, 1 once zoomed in on the US.
-    const zoomLevel = () => Math.min(1, Math.max(0, (cam.r - WORLD_RADIUS) / (usRadius() - WORLD_RADIUS)));
+    const zoomLevel = () => Math.min(1, Math.max(0, (cam.r - worldRadius()) / (usRadius() - worldRadius())));
 
-    const onFront = (c: [number, number]) => geoDistance(c, [cam.lon, cam.lat]) < Math.PI / 2 - 0.02;
+    // On the flat map every place is on the "front".
+    const onFront = (c: [number, number]) => flat || geoDistance(c, [cam.lon, cam.lat]) < Math.PI / 2 - 0.02;
 
     const drawStar = (x: number, y: number, outer: number) => {
       ctx.beginPath();
@@ -738,11 +792,12 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
           pen = false;
           continue;
         }
+        // Globe: lifted away from the centre. Flat map: lifted straight up.
         const h = 1 + lift * Math.sin(Math.PI * u);
-        const x = cx + (p[0] - cx) * h;
-        const y = cy + (p[1] - cy) * h;
+        const x = flat ? p[0] : cx + (p[0] - cx) * h;
+        const y = flat ? p[1] - lift * Math.sin(Math.PI * u) * R * 0.5 : cy + (p[1] - cy) * h;
         // Visible if on the near side, or high enough to clear the limb.
-        const seen = Math.cos(geoDistance(g, center)) > 0 || Math.hypot(x - cx, y - cy) > R;
+        const seen = flat || Math.cos(geoDistance(g, center)) > 0 || Math.hypot(x - cx, y - cy) > R;
         if (seen) {
           if (pen) arc.lineTo(x, y);
           else arc.moveTo(x, y);
@@ -922,23 +977,27 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       const cx = ax + cam.ox;
       const cy = ay;
       const zoomed = zoomLevel();
-      projection.translate([cx, cy]).scale(R).rotate([-cam.lon, -cam.lat]);
+      aim(projection.translate([cx, cy]).scale(R), cam.lon, cam.lat);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       ctx.lineJoin = "round";
 
-      // Atmosphere: a cyan haze just outside the rim.
-      const haze = ctx.createRadialGradient(cx, cy, R * 0.96, cx, cy, R * 1.22);
-      haze.addColorStop(0, "rgba(103, 232, 249, 0.28)");
-      haze.addColorStop(0.4, "rgba(129, 140, 248, 0.10)");
-      haze.addColorStop(1, "rgba(103, 232, 249, 0)");
-      ctx.fillStyle = haze;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2);
-      ctx.fill();
+      // Atmosphere: a cyan haze just outside the rim (globe only).
+      if (!flat) {
+        const haze = ctx.createRadialGradient(cx, cy, R * 0.96, cx, cy, R * 1.22);
+        haze.addColorStop(0, "rgba(103, 232, 249, 0.28)");
+        haze.addColorStop(0.4, "rgba(129, 140, 248, 0.10)");
+        haze.addColorStop(1, "rgba(103, 232, 249, 0)");
+        ctx.fillStyle = haze;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R * 1.22, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
-      // Ocean, lit from the upper left.
-      const ocean = ctx.createRadialGradient(cx - R * 0.35, cy - R * 0.4, R * 0.1, cx, cy, R);
+      // Ocean, lit from the upper left (spread wider on the flat map, which
+      // is about 5.5 R across).
+      const spread = flat ? 2.8 : 1;
+      const ocean = ctx.createRadialGradient(cx - R * 0.35 * spread, cy - R * 0.4 * spread, R * 0.1, cx, cy, R * spread);
       ocean.addColorStop(0, "#1e1b4b");
       ocean.addColorStop(0.7, "#0b1030");
       ocean.addColorStop(1, "#050816");
@@ -1041,7 +1100,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       // show through it); anything outside the globe fades out.
       const band = Math.min(112, h * 0.25);
       const top = h - band;
-      if (cy + R > top) {
+      if (flat || cy + R > top) {
         const ink = ctx.createLinearGradient(0, top, 0, h);
         ink.addColorStop(0, "rgba(3, 7, 18, 0)");
         ink.addColorStop(1, "rgba(3, 7, 18, 1)");
@@ -1247,7 +1306,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
         cam.ox = from.ox + (to.ox - from.ox) * ez;
         if (t === 1) flight = null;
         dirty = true;
-      } else if (viewRef.current === "world" && !drag && !overGlobe && !reduceMotion) {
+      } else if (!flat && viewRef.current === "world" && !drag && !overGlobe && !reduceMotion) {
         cam.lon += SPIN * dt;
         dirty = true;
         spinning = true;
@@ -1293,7 +1352,7 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
       goTo.current = () => {};
       tripReady.current = () => {};
     };
-  }, [data, reduceMotion, anchorRef]);
+  }, [data, reduceMotion, anchorRef, flat]);
 
   if (failed) {
     return <div className="grid h-full place-items-center text-sm text-gray-400">Couldn't load the globe. Try refreshing.</div>;
@@ -1312,11 +1371,9 @@ export default function TravelGlobe({ view, anchorRef, tripId, onHover }: Props)
         ref={canvasRef}
         role="img"
         aria-label={
-          view === "trips"
-            ? "Globe showing the selected trip's route"
-            : view === "us"
-              ? "Globe zoomed in on the United States"
-              : "Globe showing the whole world"
+          `${flat ? "Map" : "Globe"} ${
+            view === "trips" ? "showing the selected trip's route" : view === "us" ? "zoomed in on the United States" : "showing the whole world"
+          }`
         }
         // Vertical swipes still scroll the page on touch screens.
         className="block h-full w-full cursor-grab touch-pan-y select-none"
